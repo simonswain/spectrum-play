@@ -81,16 +81,8 @@ reti
 
 screen_map: dw $4000, $4020, $4040, $4060, $4080, $40A0, $40C0, $40E0, $4800, $4820, $4840, $4860, $4880, $48A0, $48C0, $48E0, $5000, $5020, $5040, $5060, $5080, $50A0, $50C0, $50E0
 
-player_xy_to_mem:
-; put player x-y character position in to hl as screen memory address
-ld hl, y_pos
-ld a, (hl);
-ld b, a
-
-ld hl, x_pos
-ld a, (hl);
-ld c, a
-
+char_xy_to_pixel_mem:
+; bc is y, x
 ld h, 0
 ld l, b ; hl = Y
 add hl, hl ; hl = y*2
@@ -105,8 +97,20 @@ ld e, c
 add hl, de
 ret
 
+get_player_xy:
+; put player x-y character position in to bc (y, x)
+ld hl, y_pos
+ld a, (hl);
+ld b, a
+
+ld hl, x_pos
+ld a, (hl);
+ld c, a
+ret
+
 clear_player:
-call player_xy_to_mem
+call get_player_xy
+call char_xy_to_pixel_mem
 ld c, 8
 clear_player_loop:
 ld a, 0
@@ -118,9 +122,9 @@ ret
 
 player_sprite: db %11111111, %00111100, %00011000, %00111100, %00111100, %00011000, %00111100, %11111111
 
-
 draw_player:
-call player_xy_to_mem ; hl has memory address to draw at
+call get_player_xy
+call char_xy_to_pixel_mem
 ld c, 8 ; 8 rows
 ld de, player_sprite ; sprite
 draw_player_loop:
