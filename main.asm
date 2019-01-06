@@ -107,14 +107,29 @@ ret
 
 clear_player:
 call player_xy_to_mem
+ld c, 8
+clear_player_loop:
 ld a, 0
 ld (hl), a
+inc h
+dec c
+jr nz, clear_player_loop
 ret
 
+player_sprite: db %11111111, %00111100, %00011000, %00111100, %00111100, %00011000, %00111100, %11111111
+
+
 draw_player:
-call player_xy_to_mem
-ld a, 85
+call player_xy_to_mem ; hl has memory address to draw at
+ld c, 8 ; 8 rows
+ld de, player_sprite ; sprite
+draw_player_loop:
+ld a, (de)
 ld (hl), a
+inc h ; next pixel line
+inc e ; next sprite line
+dec c ; loop counter
+jr nz, draw_player_loop
 ret
 
 right:
