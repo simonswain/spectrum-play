@@ -13,7 +13,7 @@ inc	hl
 ; interrupt entry point
 djnz	loop
 ld	(hl),c	; set the 257th byte
-ld	hl,$fdfd	
+ld	hl,$fdfd
 ld	(hl),195	; JP instruction to $8080
 inc	hl
 ld	de,isr	; address of ISR into DE
@@ -26,36 +26,42 @@ ld	i,a	; set high byte of IM 2 vector to $81
 im	2	; 8 T States - switch into IM 2 mode
 ei	; 4 T States - enable interrupts
 
-main_loop:	; wait for interrupt
+
+;;;;;;;; wait for interrupt
+
+main_loop:
 jr	main_loop
 
-; joystick
-;x_pos: db 16
-x_bits: db 84
-cycle_bit: db 1
 
-isr:	
-call cycle_attrs
-call cycle_dots
+y_pos: db 12
+x_pos: db 16
+is_firing: db 0
 
-; cycle_dots:
-;     ld a, (cycle_bit)
-;     ld  hl, $4800
-;     ld  bc, $001F
-;     ld  (hl), a
-;     ld  d, h
-;     ld  e, 1
-;     ldir
-;     rl a
-;     ld (cycle_bit), a
-    
-; show js bits
+isr:
+
+call clear_player
+
+
 ld bc, 31
 in a,(c)
-ld hl, $5014
-ld (hl), a
+and 1
+call nz, right
 
-js button 
+ld bc, 31
+in a,(c)
+and 2
+call nz, left
+
+ld bc, 31
+in a,(c)
+and 4
+call nz, down
+
+ld bc, 31
+in a,(c)
+and 8
+call nz, up
+
 ld bc, 31
 in a,(c)
 and 16
@@ -66,31 +72,89 @@ in a,(c)
 and 16
 call z, nofire
 
-; paint js button
-ld hl, $500b
-ld a, (x_bits)
-ld (hl), a
+call draw_player
 
 ei
 reti
 
+;;;;;;;;
 
-; ld b, 0
-; ld a,(x_pos)
-; ld c, a
-; ld hl, $5000
-; add hl, bc
-; ld a, (x_bits)
-; ld (hl), a
+screen_map: dw $4000, $4020, $4040, $4060, $4080, $40A0, $40C0, $40E0, $4800, $4820, $4840, $4860, $4880, $48A0, $48C0, $48E0, $5000, $5020, $5040, $5060, $5080, $50A0, $50C0, $50E0
+
+player_xy_to_mem:
+; put player x-y character position in to hl as screen memory address
+ld hl, y_pos
+ld a, (hl);
+ld b, a
+
+ld hl, x_pos
+ld a, (hl);
+ld c, a
+
+ld h, 0
+ld l, b ; hl = Y
+add hl, hl ; hl = y*2
+ld de, screen_map
+add hl, de ; hl = screen_map + (row * 2)
+ld a, (hl) ; implements ld hl, (hl)
+inc hl
+ld h,(hl)
+ld l, a ; hl = address of first pixel from screen_map
+ld d, 0
+ld e, c
+add hl, de
+ret
+
+clear_player:
+call player_xy_to_mem
+ld a, 0
+ld (hl), a
+ret
+
+draw_player:
+call player_xy_to_mem
+ld a, 85
+ld (hl), a
+ret
+
+right:
+ld hl, x_pos
+ld a, (hl)
+cp 28
+ret z
+inc (hl)
+ret
+
+left:
+ld hl, x_pos
+ld a, (hl)
+cp 4
+ret c
+dec (hl)
+ret
+
+down:
+ld hl, y_pos
+ld a, (hl)
+cp 20
+ret z
+inc (hl)
+ret
+
+up:
+ld hl, y_pos
+ld a, (hl)
+cp 4
+ret c
+dec (hl)
+ret
 
 fire:
-ld a, 255
-ld (x_bits), a
+call cycle_attrs
 ret
 
 nofire:
-ld a, 85
-ld (x_bits), a
+call reset_attrs
 ret
 
 
