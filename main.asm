@@ -32,15 +32,11 @@ ei	; 4 T States - enable interrupts
 main_loop:
 jr	main_loop
 
-
-y_pos: db 12
-x_pos: db 16
-is_firing: db 0
-
 isr:
 
 call clear_player
-
+call clear_laser
+call update_laser
 
 ld bc, 31
 in a,(c)
@@ -67,17 +63,26 @@ in a,(c)
 and 16
 call nz, fire
 
-ld bc, 31
-in a,(c)
-and 16
-call z, nofire
-
 call draw_player
+call draw_laser
 
 ei
 reti
 
+y_pos: db 12
+x_pos: db 16
+is_firing: db 0
+
+; slots for 4 lasers. 0 means no laser in that slot
+laser_x: db 0, 0, 0, 0
+laser_y: db 0, 0, 0, 0
+laser_d: db 0, 0, 0, 0 ; 0 = right, 1 = left
+laser_attr: db 68 ; 0 color bits for lasers - rotate 1-7
+laser_direction: db 1 ; dir of last laser 0 right, 1 left
+
 player_sprite: db %11111111, %00111100, %00011000, %00111100, %00111100, %00011000, %00111100, %11111111
+
+laser_sprite: db %00000000, %00000000, %00000000 , %11111111, %11111111, %00000000, %00000000, %00000000
 
 screen_map: dw $4000, $4020, $4040, $4060, $4080, $40A0, $40C0, $40E0, $4800, $4820, $4840, $4860, $4880, $48A0, $48C0, $48E0, $5000, $5020, $5040, $5060, $5080, $50A0, $50C0, $50E0
 
@@ -115,6 +120,19 @@ ld e, c
 add hl, de
 ret
 
+clear_sprite:
+; sprite y, x position in bc
+call char_xy_to_pixel_mem
+ld c, 8
+clear_sprite_loop:
+ld a, 0
+ld (hl), a
+inc h
+dec c
+jr nz, clear_sprite_loop
+ret
+
+
 get_player_xy:
 ; put player x-y character position in to bc (y, x)
 ld hl, y_pos
@@ -128,19 +146,11 @@ ret
 
 clear_player:
 call get_player_xy ; bc now has y, x
-call char_xy_to_pixel_mem
-;; erase sprite
-ld c, 8
-clear_player_loop:
-ld a, 0
-ld (hl), a
-inc h
-dec c
-jr nz, clear_player_loop
+call clear_sprite
 ret
 
 draw_player:
-call get_player_xy; bc now has y, xcall char_xy_to_pixel_mem
+call get_player_xy; bc now has y, x
 
 push bc
 call char_xy_to_pixel_mem
@@ -157,6 +167,94 @@ pop bc
 call char_xy_to_attrs_mem
 ld (hl), %01000111
 ret
+
+get_laser_xy:
+; put laser x-y character position in to bc (y, x)
+ld hl, laser_y
+ld a, (hl);
+ld b, a
+
+ld hl, laser_x
+ld a, (hl);
+ld c, a
+ret
+
+update_laser:
+; cycle laser color attr value
+ld hl, laser_attr
+ld a, (hl)
+inc a
+cp 72
+jp nz, update_laser_attr
+ld a, 66
+update_laser_attr:
+ld (hl), a
+
+; move laser position
+ld hl, laser_x
+ld a, 0
+cp (hl)
+ret z ; no laser
+ld a, (hl)
+cp 29 ; hit right edge
+jp z, update_laser_terminate
+cp 3 ; hit left edge
+jp z, update_laser_terminate
+; move laser
+ld hl, laser_d ; this shot direction
+ld c, (hl)
+ld a, 1
+cp c
+jp z, update_laser_move_right
+ld hl, laser_x ; this shot direction
+ld a, (hl) ; get dir for this shot
+dec a; move laser left
+ld (laser_x), a
+ret
+update_laser_move_right:
+ld hl, laser_x ; this shot direction
+ld a, (hl) ; get dir for this shot
+inc a; move laser left
+ld (laser_x), a
+ret
+update_laser_terminate:
+; clear laser - out of bounds
+ld (hl), 0
+ret
+
+
+clear_laser:
+ld hl, laser_x
+ld a, 0
+cp (hl)
+ret z ; no laser
+call get_laser_xy ; bc now has y, x
+call clear_sprite
+ret
+
+draw_laser:
+ld hl, laser_x
+ld a, 0
+cp (hl)
+ret z ; no laser
+call get_laser_xy; bc now has y, x
+push bc
+call char_xy_to_pixel_mem
+ld c, 8 ; 8 rows
+ld de, laser_sprite ; sprite
+draw_laser_loop:
+ld a, (de)
+ld (hl), a
+inc h ; next pixel line
+inc e ; next sprite line
+dec c ; loop counter
+jr nz, draw_laser_loop
+pop bc
+call char_xy_to_attrs_mem ; hl now has attrs memory location
+ld a, (laser_attr)
+ld (hl), a
+ret
+
 
 right:
 ld hl, x_pos
@@ -190,14 +288,35 @@ ret c
 dec (hl)
 ret
 
+; just working with one laser for now
 fire:
-call cycle_attrs
+ld hl, laser_x
+ld a, 0
+cp (hl)
+ret nz ; if laser busy, can't fire
+ld hl, y_pos
+ld a, (hl)
+ld (laser_y), a
+ld hl, y_pos
+ld a, (hl)
+; get direction, flip it
+ld hl, laser_direction
+ld a, (hl)
+ld c, 1
+xor c
+ld (hl), a
+ld hl, laser_d ; where we will store dir
+ld (hl), a ; save dir for this shot
+ld hl, x_pos
+ld a, (hl)
+jp z, fire_left
+inc a ; shoot from right side
+ld (laser_x), a
 ret
-
-nofire:
-call reset_attrs
+fire_left:
+dec a ; shoot from left side
+ld (laser_x), a
 ret
-
 
 include "cls.asm"
 include "splash.asm"
