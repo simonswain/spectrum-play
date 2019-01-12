@@ -35,8 +35,8 @@ jr	main_loop
 isr:
 
 call clear_player
-call clear_laser
-call update_laser
+call clear_lasers
+call update_lasers
 
 ld bc, 31
 in a,(c)
@@ -64,7 +64,7 @@ and 16
 call nz, fire
 
 call draw_player
-call draw_laser
+call draw_lasers
 
 ei
 reti
@@ -74,11 +74,16 @@ x_pos: db 16
 is_firing: db 0
 
 ; slots for 4 lasers. 0 means no laser in that slot
+
+; y, d, x
+db 'las'
+lasers: db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+laser_attr: db 68 ; 0 color bits for lasers - rotate 1-7
+laser_dir: db 1 ; dir of last laser 0 right, 1 left
+db 'end'
 laser_x: db 0, 0, 0, 0
 laser_y: db 0, 0, 0, 0
 laser_d: db 0, 0, 0, 0 ; 0 = right, 1 = left
-laser_attr: db 68 ; 0 color bits for lasers - rotate 1-7
-laser_direction: db 1 ; dir of last laser 0 right, 1 left
 
 player_sprite: db %11111111, %00111100, %00011000, %00111100, %00111100, %00011000, %00111100, %11111111
 
@@ -151,7 +156,6 @@ ret
 
 draw_player:
 call get_player_xy; bc now has y, x
-
 push bc
 call char_xy_to_pixel_mem
 ld c, 8 ; 8 rows
@@ -170,16 +174,14 @@ ret
 
 get_laser_xy:
 ; put laser x-y character position in to bc (y, x)
-ld hl, laser_y
-ld a, (hl);
-ld b, a
-
-ld hl, laser_x
-ld a, (hl);
-ld c, a
+; incoming, hl contains address of laser slot
+ld b, (hl); ; laser y to b
+inc hl ; skip laser direction
+inc hl
+ld c, (hl); ; laser x to c
 ret
 
-update_laser:
+update_lasers:
 ; cycle laser color attr value
 ld hl, laser_attr
 ld a, (hl)
@@ -190,57 +192,102 @@ ld a, 66
 update_laser_attr:
 ld (hl), a
 
-; move laser position
-ld hl, laser_x
+;move lasers
+ld hl, lasers
+; find active lasers and draw
+ld b, 4 ; 4 slots
+move_lasers_loop:
 ld a, 0
-cp (hl)
-ret z ; no laser
-ld a, (hl)
-cp 29 ; hit right edge
-jp z, update_laser_terminate
-cp 3 ; hit left edge
-jp z, update_laser_terminate
+cp (hl) ; if laser y pos is zero, laser is unused
+push bc
+push hl
+call move_laser ; bc now has y, x
+pop hl
+pop bc
+inc hl ; skip to next slot
+inc hl
+inc hl
+dec b ; for all lasers
+ret z ; looked at all slots
+jp move_lasers_loop
+
+
+; move laser position
+move_laser:
+inc hl ; we got passed laser y pos. skip to dir
+ld c, (hl) ; get this laser direction
+inc hl ; skip to x pos
+ld a, (hl) ;; get laser x pos
+cp 30 ; x pos hit right edge?
+jp z, move_laser_done
+cp 2 ; x pos hit left edge?
+jp z, move_laser_done
 ; move laser
-ld hl, laser_d ; this shot direction
-ld c, (hl)
+ld b, a ; put x pos in b
 ld a, 1
-cp c
-jp z, update_laser_move_right
-ld hl, laser_x ; this shot direction
-ld a, (hl) ; get dir for this shot
-dec a; move laser left
-ld (laser_x), a
+cp c ; laser moving right?
+jp z, move_laser_right
+dec b; move laser left
+ld (hl), b ; save new position
 ret
-update_laser_move_right:
-ld hl, laser_x ; this shot direction
-ld a, (hl) ; get dir for this shot
-inc a; move laser left
-ld (laser_x), a
+move_laser_right:
+inc b; move laser right
+ld (hl), b ; save new postion
 ret
-update_laser_terminate:
+move_laser_done:
 ; clear laser - out of bounds
 ld (hl), 0
+dec hl ; skip back to laser y pos
+ld (hl), 0
+dec hl
+ld (hl), 0 ; save zero to indicate free slot
 ret
 
-
-clear_laser:
-ld hl, laser_x
+clear_lasers:
+ld hl, lasers
+; find active lasers and draw
+ld b, 4 ; 4 slots
+clear_lasers_loop:
 ld a, 0
-cp (hl)
-ret z ; no laser
+cp (hl) ; if laser y pos is zero, laser is unused
+push bc
+push hl
 call get_laser_xy ; bc now has y, x
 call clear_sprite
-ret
+pop hl
+pop bc
+inc hl ;; skip to next slot
+inc hl
+inc hl
+dec b ; for all lasers
+ret z ; looked at all slots
+jp clear_lasers_loop
+
+draw_lasers:
+ld hl, lasers
+; find active lasers and draw
+ld b, 4 ; 4 slots
+draw_lasers_loop:
+ld a, 0
+cp (hl) ; if laser y pos is zero, laser is unused
+push bc
+push hl
+call nz, draw_laser
+pop hl
+pop bc
+inc hl ;; skip to next slot
+inc hl
+inc hl
+dec b ;; for all lasers
+ret z ; looked at all slots
+jp draw_lasers_loop
 
 draw_laser:
-ld hl, laser_x
-ld a, 0
-cp (hl)
-ret z ; no laser
+; hl contains address of laser slot
 call get_laser_xy; bc now has y, x
-push bc
+push bc ; save it
 call char_xy_to_pixel_mem
-ld c, 8 ; 8 rows
+ld c, 8 ; 8 rows of laser sprite
 ld de, laser_sprite ; sprite
 draw_laser_loop:
 ld a, (de)
@@ -255,6 +302,48 @@ ld a, (laser_attr)
 ld (hl), a
 ret
 
+; fire laser
+
+fire:
+ld hl, lasers
+; find first available laser slot
+ld a, 0
+ld b, 4 ; 4 slots
+fire_find_slot:
+cp (hl) ; is y value of slot zero?
+jp z, fire_shot ; yes, found an unused laser slot
+inc hl
+inc hl
+inc hl
+dec b
+jp nz, fire_find_slot
+ret ; looked at all slots, none available
+fire_shot:
+; laser y pos
+ld de, y_pos ; player y
+ld a, (de)
+ld (hl), a ; save as laser y
+inc hl ; next pos in slot is direction
+; get last direction, flip it
+ld de, laser_dir
+ld a, (de)
+ld c, 1
+xor c
+ld (de), a ; save direction for next shot
+ld (hl), a ; save dirction for this laser
+ld de, x_pos ; player x pos
+ld a, (de)
+jp z, fire_left
+inc a ; shoot from right side
+jp fire_done
+fire_left:
+dec a ; shoot from left side
+fire_done:
+inc hl ; next slot for laser is x pos
+ld (hl), a
+ret
+
+; joystick movement
 
 right:
 ld hl, x_pos
@@ -288,35 +377,6 @@ ret c
 dec (hl)
 ret
 
-; just working with one laser for now
-fire:
-ld hl, laser_x
-ld a, 0
-cp (hl)
-ret nz ; if laser busy, can't fire
-ld hl, y_pos
-ld a, (hl)
-ld (laser_y), a
-ld hl, y_pos
-ld a, (hl)
-; get direction, flip it
-ld hl, laser_direction
-ld a, (hl)
-ld c, 1
-xor c
-ld (hl), a
-ld hl, laser_d ; where we will store dir
-ld (hl), a ; save dir for this shot
-ld hl, x_pos
-ld a, (hl)
-jp z, fire_left
-inc a ; shoot from right side
-ld (laser_x), a
-ret
-fire_left:
-dec a ; shoot from left side
-ld (laser_x), a
-ret
 
 include "cls.asm"
 include "splash.asm"
