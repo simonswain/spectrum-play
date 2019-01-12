@@ -3,9 +3,6 @@ org $8000
 start:	di	; disable ints
 ld	sp,$ff00	; set up a stack
 
-call cls
-call splash
-
 ld	hl,$fefe	; set up a table of 257 x $80 for IM 2 vectors @ $8100
 ld	bc,$fd
 loop:	ld	(hl),c
@@ -34,6 +31,28 @@ jr	main_loop
 
 isr:
 
+ld hl, state
+ld a, (hl)
+dec a
+jp z, game_loop ; 1
+dec a
+jp z, game_start ; 2
+dec a
+jp z, level_start ; 3
+dec a
+jp z, level_end ; 4
+dec a
+jp z, game_over ; 5
+dec a
+jp z, attract ; 6
+dec a
+jp z, title ; 7
+dec a
+jp z, boot ; 8
+ei
+reti
+
+game_loop: 
 call clear_player
 call clear_lasers
 call update_lasers
@@ -68,6 +87,22 @@ call draw_lasers
 
 ei
 reti
+
+state_play: equ 1
+state_game_on: equ 2
+state_level_start: equ 3
+state_level_end: equ 4
+state_game_over: equ 5
+state_attract: equ 6
+state_title: equ 7
+state_boot: equ 8
+
+state: db state_boot ; 1 = playing game, 2 = level end, 3 = start game, 4 = attract, 5 = title, 6 = boot
+state_step: db 0
+state_timer: dw 0
+
+game_level: db 0
+game_score: dw 0
 
 y_pos: db 12
 x_pos: db 16
@@ -218,7 +253,7 @@ inc hl ; we got passed laser y pos. skip to dir
 ld c, (hl) ; get this laser direction
 inc hl ; skip to x pos
 ld a, (hl) ;; get laser x pos
-cp 30 ; x pos hit right edge?
+cp 29 ; x pos hit right edge?
 jp z, move_laser_done
 cp 2 ; x pos hit left edge?
 jp z, move_laser_done
@@ -376,6 +411,58 @@ cp 4
 ret c
 dec (hl)
 ret
+
+;; states
+
+boot:
+call cls
+call splash
+ld hl, state
+ld (hl), state_game_on
+ei
+reti
+
+game_start:
+ld hl, game_level
+ld (hl), 1
+
+ld hl, game_score
+ld (hl), 0
+inc hl
+ld (hl), 0
+
+; start game
+ld hl, state
+ld (hl), state_level_start
+ei
+reti
+
+level_start:
+; cls
+; print score
+; print level
+; draw game area
+ld hl, state
+ld (hl), state_play
+ei
+reti
+
+level_end:
+ei
+reti
+
+game_over:
+ei
+reti
+
+attract:
+ei
+reti
+
+title:
+ei
+reti
+
 
 
 include "cls.asm"
