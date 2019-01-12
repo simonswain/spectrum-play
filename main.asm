@@ -97,32 +97,27 @@ state_attract: equ 6
 state_title: equ 7
 state_boot: equ 8
 
-state: db state_boot ; 1 = playing game, 2 = level end, 3 = start game, 4 = attract, 5 = title, 6 = boot
+state: db state_boot
 state_step: db 0
 state_timer: dw 0
 
-game_level: db 0
+game_level: dw 0
+level_attr: db %00000100
 game_score: dw 0
 
 y_pos: db 12
 x_pos: db 16
-is_firing: db 0
 
 ; slots for 4 lasers. 0 means no laser in that slot
 
 ; y, d, x
-db 'las'
 lasers: db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 laser_attr: db 68 ; 0 color bits for lasers - rotate 1-7
 laser_dir: db 1 ; dir of last laser 0 right, 1 left
-db 'end'
-laser_x: db 0, 0, 0, 0
-laser_y: db 0, 0, 0, 0
-laser_d: db 0, 0, 0, 0 ; 0 = right, 1 = left
 
 player_sprite: db %11111111, %00111100, %00011000, %00111100, %00111100, %00011000, %00111100, %11111111
 
-laser_sprite: db %00000000, %00000000, %00000000 , %11111111, %11111111, %00000000, %00000000, %00000000
+laser_sprite: db %00000000, %00000000, %00011000 , %11111111, %11111111, %00011000, %00000000, %00000000
 
 screen_map: dw $4000, $4020, $4040, $4060, $4080, $40A0, $40C0, $40E0, $4800, $4820, $4840, $4860, $4880, $48A0, $48C0, $48E0, $5000, $5020, $5040, $5060, $5080, $50A0, $50C0, $50E0
 
@@ -234,6 +229,7 @@ ld b, 4 ; 4 slots
 move_lasers_loop:
 ld a, 0
 cp (hl) ; if laser y pos is zero, laser is unused
+jp z, skip_move_laser
 push bc
 push hl
 call move_laser ; bc now has y, x
@@ -242,6 +238,7 @@ pop bc
 inc hl ; skip to next slot
 inc hl
 inc hl
+skip_move_laser:
 dec b ; for all lasers
 ret z ; looked at all slots
 jp move_lasers_loop
@@ -285,6 +282,7 @@ ld b, 4 ; 4 slots
 clear_lasers_loop:
 ld a, 0
 cp (hl) ; if laser y pos is zero, laser is unused
+jp z, skip_clear_laser
 push bc
 push hl
 call get_laser_xy ; bc now has y, x
@@ -294,9 +292,11 @@ pop bc
 inc hl ;; skip to next slot
 inc hl
 inc hl
+skip_clear_laser:
 dec b ; for all lasers
 ret z ; looked at all slots
 jp clear_lasers_loop
+
 
 draw_lasers:
 ld hl, lasers
@@ -305,15 +305,17 @@ ld b, 4 ; 4 slots
 draw_lasers_loop:
 ld a, 0
 cp (hl) ; if laser y pos is zero, laser is unused
+jp z, skip_draw_laser
 push bc
 push hl
-call nz, draw_laser
+call draw_laser
 pop hl
 pop bc
 inc hl ;; skip to next slot
 inc hl
 inc hl
-dec b ;; for all lasers
+skip_draw_laser:
+dec b ; for all lasers
 ret z ; looked at all slots
 jp draw_lasers_loop
 
@@ -442,6 +444,80 @@ level_start:
 ; print score
 ; print level
 ; draw game area
+
+; color for this level
+ld hl, level_attr
+ld a, (hl) ; attr color for this level
+out (254), a ; ok so long as not doing sound
+;call 8859 ; set border colour (uses a, stomps on a)
+
+; top play area border
+ld hl, $4440
+ld de, $5840
+ld b, 32
+top_border_loop:
+ld (hl), %10101010 ; pixels
+inc hl
+ld (de), a ; attrs
+inc de
+djnz top_border_loop
+
+; bottom play area border
+ld hl, $54A0
+ld de, $5aa0
+ld b, 32
+bottom_border_loop:
+ld (hl), %10101010 ; pixels
+inc hl
+ld (de), a ; attrs
+inc de
+djnz bottom_border_loop
+
+; ; print score
+ld a, 22
+rst 16
+ld a, 0 ; y
+rst 16
+ld a, 0; x
+rst 16
+ld bc, (game_score)
+call 11563
+call 11747
+; score attr
+ld de, $5800
+ld a, %01000111
+ld (de), a
+inc de
+ld (de), a
+inc de
+ld (de), a
+inc de
+ld (de), a
+
+; print level
+ld a, 22
+rst 16
+ld a, 0 ; y
+rst 16
+ld a, 31; x
+rst 16
+ld bc, (game_level)
+call 11563
+call 11747
+; level attr
+ld de, $581f
+ld a, %01000111
+ld (de), a
+dec de
+ld (de), a
+dec de
+ld (de), a
+dec de
+ld (de), a
+
+
+
+
 ld hl, state
 ld (hl), state_play
 ei
