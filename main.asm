@@ -23,7 +23,6 @@ ld	i,a	; set high byte of IM 2 vector to $81
 im	2	; 8 T States - switch into IM 2 mode
 ei	; 4 T States - enable interrupts
 
-
 ;;;;;;;; wait for interrupt
 
 main_loop:
@@ -56,34 +55,13 @@ game_loop:
 call clear_player
 call clear_lasers
 call update_lasers
-
-ld bc, 31
-in a,(c)
-and 1
-call nz, right
-
-ld bc, 31
-in a,(c)
-and 2
-call nz, left
-
-ld bc, 31
-in a,(c)
-and 4
-call nz, down
-
-ld bc, 31
-in a,(c)
-and 8
-call nz, up
-
-ld bc, 31
-in a,(c)
-and 16
-call nz, fire
-
-call draw_player
+call update_player
+call clear_aliens
+; call update_aliens
+; call spawn_aliens
+call draw_aliens
 call draw_lasers
+call draw_player
 
 ei
 reti
@@ -108,86 +86,65 @@ game_score: dw 0
 y_pos: db 12
 x_pos: db 16
 
+timer: db 0 ; number of frames elapsed each second(count 0-49)
 ; slots for 4 lasers. 0 means no laser in that slot
 
 ; y, d, x
+lasers_count: equ 4
 lasers: db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 laser_attr: db 68 ; 0 color bits for lasers - rotate 1-7
 laser_dir: db 1 ; dir of last laser 0 right, 1 left
 
-player_sprite: db %11111111, %00111100, %00011000, %00111100, %00111100, %00011000, %00111100, %11111111
+; slots for 5 humanoids
+; state, y, x. state 0 = dead, 1 = on screen, 2 = waiting to go on screen, 3 = rescued 
+humans: db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+humans_alive: db 0 ; how many humans player has
 
+player_sprite: db %11111111, %00111100, %00011000, %00111100, %00111100, %00011000, %00111100, %11111111
 laser_sprite: db %00000000, %00000000, %00011000 , %11111111, %11111111, %00011000, %00000000, %00000000
 
-screen_map: dw $4000, $4020, $4040, $4060, $4080, $40A0, $40C0, $40E0, $4800, $4820, $4840, $4860, $4880, $48A0, $48C0, $48E0, $5000, $5020, $5040, $5060, $5080, $50A0, $50C0, $50E0
+chars_map: dw $4000, $4020, $4040, $4060, $4080, $40A0, $40C0, $40E0, $4800, $4820, $4840, $4860, $4880, $48A0, $48C0, $48E0, $5000, $5020, $5040, $5060, $5080, $50A0, $50C0, $50E0
 
 attrs_map: dw $5800, $5820, $5840, $5860, $5880, $58A0, $58C0, $58E0, $5900, $5920, $5940, $5960, $5980, $59A0, $59C0, $59E0, $5A00, $5A20, $5A40, $5A60, $5A80, $5AA0, $5AC0, $5AE0
 
-char_xy_to_pixel_mem:
-; bc is y, x
-ld h, 0
-ld l, b ; hl = Y
-add hl, hl ; hl = y*2
-ld de, screen_map
-add hl, de ; hl = screen_map + (row * 2)
-ld a, (hl) ; implements ld hl, (hl)
-inc hl
-ld h,(hl)
-ld l, a ; hl = address of first pixel from screen_map
-ld d, 0
-ld e, c
-add hl, de
+update_player:
+; joystick movement
+ld bc, 31
+in a,(c)
+and 1
+call nz, right
+
+ld bc, 31
+in a,(c)
+and 2
+call nz, left
+
+ld bc, 31
+in a,(c)
+and 4
+call nz, down
+
+ld bc, 31
+in a,(c)
+and 8
+call nz, up
+
+ld bc, 31
+in a,(c)
+and 16
+call nz, fire
 ret
 
-char_xy_to_attrs_mem:
-; bc is y, x
-ld h, 0
-ld l, b ; hl = Y
-add hl, hl ; hl = y*2
-ld de, attrs_map
-add hl, de ; hl = screen_map + (row * 2)
-ld a, (hl) ; implements ld hl, (hl)
-inc hl
-ld h,(hl)
-ld l, a ; hl = address of first pixel from screen_map
-ld d, 0
-ld e, c
-add hl, de
-ret
-
-clear_sprite:
-; sprite y, x position in bc
-call char_xy_to_pixel_mem
-ld c, 8
-clear_sprite_loop:
-ld a, 0
-ld (hl), a
-inc h
-dec c
-jr nz, clear_sprite_loop
-ret
-
-
-get_player_xy:
-; put player x-y character position in to bc (y, x)
-ld hl, y_pos
-ld a, (hl);
-ld b, a
-
-ld hl, x_pos
-ld a, (hl);
-ld c, a
-ret
 
 clear_player:
-call get_player_xy ; bc now has y, x
+call get_player_yx ; bc now has y, x
 call clear_sprite
 ret
 
 draw_player:
-call get_player_xy; bc now has y, x
+call get_player_yx; bc now has y, x
 push bc
-call char_xy_to_pixel_mem
+call char_yx_to_pixel_mem
 ld c, 8 ; 8 rows
 ld de, player_sprite ; sprite
 draw_player_loop:
@@ -198,11 +155,11 @@ inc e ; next sprite line
 dec c ; loop counter
 jr nz, draw_player_loop
 pop bc
-call char_xy_to_attrs_mem
+call char_yx_to_attrs_mem
 ld (hl), %01000111
 ret
 
-get_laser_xy:
+get_laser_yx:
 ; put laser x-y character position in to bc (y, x)
 ; incoming, hl contains address of laser slot
 ld b, (hl); ; laser y to b
@@ -225,7 +182,7 @@ ld (hl), a
 ;move lasers
 ld hl, lasers
 ; find active lasers and draw
-ld b, 4 ; 4 slots
+ld b, lasers_count
 move_lasers_loop:
 ld a, 0
 cp (hl) ; if laser y pos is zero, laser is unused
@@ -278,14 +235,14 @@ ret
 clear_lasers:
 ld hl, lasers
 ; find active lasers and draw
-ld b, 4 ; 4 slots
+ld b, lasers_count
 clear_lasers_loop:
 ld a, 0
 cp (hl) ; if laser y pos is zero, laser is unused
 jp z, skip_clear_laser
 push bc
 push hl
-call get_laser_xy ; bc now has y, x
+call get_laser_yx ; bc now has y, x
 call clear_sprite
 pop hl
 pop bc
@@ -301,7 +258,7 @@ jp clear_lasers_loop
 draw_lasers:
 ld hl, lasers
 ; find active lasers and draw
-ld b, 4 ; 4 slots
+ld b, lasers_count
 draw_lasers_loop:
 ld a, 0
 cp (hl) ; if laser y pos is zero, laser is unused
@@ -321,9 +278,9 @@ jp draw_lasers_loop
 
 draw_laser:
 ; hl contains address of laser slot
-call get_laser_xy; bc now has y, x
+call get_laser_yx; bc now has y, x
 push bc ; save it
-call char_xy_to_pixel_mem
+call char_yx_to_pixel_mem
 ld c, 8 ; 8 rows of laser sprite
 ld de, laser_sprite ; sprite
 draw_laser_loop:
@@ -334,7 +291,7 @@ inc e ; next sprite line
 dec c ; loop counter
 jr nz, draw_laser_loop
 pop bc
-call char_xy_to_attrs_mem ; hl now has attrs memory location
+call char_yx_to_attrs_mem ; hl now has attrs memory location
 ld a, (laser_attr)
 ld (hl), a
 ret
@@ -414,6 +371,242 @@ ret c
 dec (hl)
 ret
 
+; aliens
+alien_slots: equ 2
+; slots for 10 aliens
+; type, y, x, state, counter  - type 0 means unoccupied slot
+aliens: 
+
+alien_0: db 1, 10, 1
+alien_0_sprite: dw 0 ; pointer to sprite, set when spawned
+alien_0_color: db %01000100 ; color of this alien, set when spawned or on update
+alien_0_update: dw 0 ; pointer to update routine, set when spawned
+alien_0_state: db 0, 0 ; state and state counter
+
+alien_1: db 1, 11, 30
+alien_1_sprite: dw 0
+alien_1_color: db %01000101
+alien_1_update: dw 0
+alien_1_state: db 0, 0 ; state and state counter
+
+
+; each alien definition (set at start of level)
+; count, max on screen, remaining in this level, spawn interval, spawn interval countdown
+level_hunters: db 0, 0, 0, 0, 0
+level_bouncers: db 0, 0, 0, 0, 0
+level_seekers: db 0, 0, 0, 0, 0
+
+hunter_sprite: db %01011010, %00000000, %01111110, %11011011, %11111111, %01111110, %01000010, %00000000
+bouncer_sprite: db %00000000, %01111110, %11000011, %10011001, %10011001, %11000011, %01111110, %00000000
+seeker_sprite: db %00000000, %00011000, %01111110 , %11011011, %11111111, %01111110, %00011000, %00000000
+
+clear_aliens:
+ld hl, aliens
+; find active aliens and clear
+ld b, alien_slots
+clear_aliens_loop:
+ld a, 0
+cp (hl) ; if type  zero, alien slot is unused
+jp z, skip_clear_alien
+push bc
+push hl
+call clear_alien
+pop hl
+pop bc
+; skip over record
+inc hl ; type
+inc hl ; y
+inc hl ; x
+inc hl ; sprite
+inc hl ; sprite
+inc hl ; color
+inc hl ; update
+inc hl ; update
+inc hl ; state
+inc hl ; counter
+skip_clear_alien:
+dec b ; for all aliens
+ret z ; looked at all slots
+jp clear_aliens_loop
+ret
+
+; hl points to alien struct
+clear_alien:
+inc hl ;; skip type
+ld b, (hl) ; load alien y, x
+inc hl
+ld c, (hl)
+call char_yx_to_pixel_mem
+ld c, 8 ; 8 rows
+clear_alien_loop:
+ld a, 0
+ld (hl), a
+inc h ; next pixel line
+inc e ; next sprite line
+dec c ; loop counter
+jr nz, clear_alien_loop
+ret
+
+
+spawn_aliens:
+ret
+
+update_aliens:
+ret
+
+draw_aliens:
+ld hl, aliens
+; find active aliens and draw
+ld b, alien_slots
+draw_aliens_loop:
+ld a, 0
+cp (hl) ; if type  zero, alien slot is unused
+jp z, skip_draw_alien
+push bc
+push hl
+; draw alien here call alien_laser ; hl is pointer to alien slot
+; here should load type, load x, y, get pointers and call update, draw
+
+; stub for test
+call draw_alien
+
+pop hl
+pop bc
+; skip over record
+inc hl ; type
+inc hl ; y
+inc hl ; x
+inc hl ; sprite
+inc hl ; sprite
+inc hl ; color
+inc hl ; update
+inc hl ; update
+inc hl ; state
+inc hl ; counter
+
+skip_draw_alien:
+dec b ; for all aliens
+ret z ; looked at all slots
+jp draw_aliens_loop
+ret
+
+; hl points to alien struct
+draw_alien:
+inc hl ;; skip type
+ld b, (hl) ; load alien y, x
+inc hl
+ld c, (hl)
+inc hl
+inc hl
+inc hl
+ld a, (hl)
+push af
+push bc
+call char_yx_to_pixel_mem
+ld c, 8 ; 8 rows
+ld de, bouncer_sprite ; sprite (should come from struct)
+draw_alien_loop:
+ld a, (de)
+ld (hl), a
+inc h ; next pixel line
+inc e ; next sprite line
+dec c ; loop counter
+jr nz, draw_alien_loop
+pop bc
+call char_yx_to_attrs_mem
+pop af
+ld (hl), a
+ret
+
+; alien type function pointers
+alien_types:
+alien_type_hunter:
+dw update_hunter 
+dw paint_hunter
+alien_type_bouncer:
+dw update_bouncer
+dw paint_bouncer
+alien_type_seeker:
+dw update_seeker 
+dw paint_seeker
+
+; alien handlers
+update_hunter:
+ret
+
+paint_hunter:
+ret
+
+update_bouncer:
+ret
+
+paint_bouncer:
+ret
+
+update_seeker:
+ret
+
+paint_seeker:
+ret
+
+; helpers
+
+char_yx_to_pixel_mem:
+; bc is y, x
+ld h, 0
+ld l, b ; hl = Y
+add hl, hl ; hl = y*2
+ld de, chars_map
+add hl, de ; hl = chars_map + (row * 2)
+ld a, (hl) ; implements ld hl, (hl)
+inc hl
+ld h,(hl)
+ld l, a ; hl = address of first pixel from chars_map
+ld d, 0
+ld e, c
+add hl, de
+ret
+
+char_yx_to_attrs_mem:
+; bc is y, x
+ld h, 0
+ld l, b ; hl = Y
+add hl, hl ; hl = y*2
+ld de, attrs_map
+add hl, de ; hl = chars_map + (row * 2)
+ld a, (hl) ; implements ld hl, (hl)
+inc hl
+ld h,(hl)
+ld l, a ; hl = address of first pixel from chars_map
+ld d, 0
+ld e, c
+add hl, de
+ret
+
+clear_sprite:
+; sprite y, x position in bc
+call char_yx_to_pixel_mem
+ld c, 8
+clear_sprite_loop:
+ld a, 0
+ld (hl), a
+inc h
+dec c
+jr nz, clear_sprite_loop
+ret
+
+
+get_player_yx:
+; put player x-y character position in to bc (y, x)
+ld hl, y_pos
+ld a, (hl);
+ld b, a
+
+ld hl, x_pos
+ld a, (hl);
+ld c, a
+ret
+
 ;; states
 
 boot:
@@ -432,6 +625,9 @@ ld hl, game_score
 ld (hl), 0
 inc hl
 ld (hl), 0
+
+ld hl, humans_alive
+ld (hl), 5
 
 ; start game
 ld hl, state
@@ -473,7 +669,7 @@ ld (de), a ; attrs
 inc de
 djnz bottom_border_loop
 
-; ; print score
+; print score
 ld a, 22
 rst 16
 ld a, 0 ; y
@@ -515,9 +711,20 @@ ld (de), a
 dec de
 ld (de), a
 
+; dummy level start
+; would do % based on level and set alien meta based on result
 
+ld hl, level_bouncers
+inc hl ; skip count
+ld (hl), 4 ; max on screen
+inc hl
+ld (hl), 12 ; count for level
+inc hl
+ld (hl), 25 ; spawn interval
+inc hl
+ld (hl), 50 ; spawn interval countdown (before first alien shows up)
 
-
+;
 ld hl, state
 ld (hl), state_play
 ei
@@ -540,6 +747,75 @@ ei
 reti
 
 
+; IN  -   B = pixel row (0..191)
+; IN  -   C = character column (0..31)
+; OUT -  HL = screen address
+; OUT -  DE = trash
+; coords_to_address:  
+;     ld  h, 0
+;     ld  l, b            ; hl = row
+;     add hl, hl          ; hl = row number * 2
+;     ld  de, screen_map  ; de = screen map
+;     add hl, de          ; de = screen_map + (row * 2)
+;     ld  a, (hl)         ; implements ld hl, (hl)
+;     inc hl
+;     ld  h, (hl)         
+;     ld  l, a            ; hl = address of first pixel in screen map
+;     ld  d, 0
+;     ld  e, c            ; de = X (character based)
+;     add hl, de          ; hl = screen addr + 32
+;     ret                 ; return screen_map[pixel_row]
+
+
+; screen_map:		
+; dw #4000, #4100, #4200, #4300 
+; dw #4400, #4500, #4600, #4700 
+; dw #4020, #4120, #4220, #4320 
+; dw #4420, #4520, #4620, #4720 
+; dw #4040, #4140, #4240, #4340 
+; dw #4440, #4540, #4640, #4740 
+; dw #4060, #4160, #4260, #4360 
+; dw #4460, #4560, #4660, #4760 
+; dw #4080, #4180, #4280, #4380 
+; dw #4480, #4580, #4680, #4780 
+; dw #40A0, #41A0, #42A0, #43A0 
+; dw #44A0, #45A0, #46A0, #47A0 
+; dw #40C0, #41C0, #42C0, #43C0 
+; dw #44C0, #45C0, #46C0, #47C0 
+; dw #40E0, #41E0, #42E0, #43E0 
+; dw #44E0, #45E0, #46E0, #47E0 
+; dw #4800, #4900, #4A00, #4B00 
+; dw #4C00, #4D00, #4E00, #4F00 
+; dw #4820, #4920, #4A20, #4B20 
+; dw #4C20, #4D20, #4E20, #4F20 
+; dw #4840, #4940, #4A40, #4B40 
+; dw #4C40, #4D40, #4E40, #4F40 
+; dw #4860, #4960, #4A60, #4B60 
+; dw #4C60, #4D60, #4E60, #4F60 
+; dw #4880, #4980, #4A80, #4B80 
+; dw #4C80, #4D80, #4E80, #4F80 
+; dw #48A0, #49A0, #4AA0, #4BA0 
+; dw #4CA0, #4DA0, #4EA0, #4FA0 
+; dw #48C0, #49C0, #4AC0, #4BC0 
+; dw #4CC0, #4DC0, #4EC0, #4FC0 
+; dw #48E0, #49E0, #4AE0, #4BE0 
+; dw #4CE0, #4DE0, #4EE0, #4FE0 
+; dw #5000, #5100, #5200, #5300 
+; dw #5400, #5500, #5600, #5700 
+; dw #5020, #5120, #5220, #5320 
+; dw #5420, #5520, #5620, #5720 
+; dw #5040, #5140, #5240, #5340 
+; dw #5440, #5540, #5640, #5740 
+; dw #5060, #5160, #5260, #5360 
+; dw #5460, #5560, #5660, #5760 
+; dw #5080, #5180, #5280, #5380 
+; dw #5480, #5580, #5680, #5780 
+; dw #50A0, #51A0, #52A0, #53A0 
+; dw #54A0, #55A0, #56A0, #57A0 
+; dw #50C0, #51C0, #52C0, #53C0 
+; dw #54C0, #55C0, #56C0, #57C0 
+; dw #50E0, #51E0, #52E0, #53E0 
+; dw #54E0, #55E0, #56E0, #57E0 
 
 include "cls.asm"
 include "splash.asm"
