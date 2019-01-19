@@ -375,26 +375,35 @@ ret
 alien_slots: equ 2
 ; slots for 10 aliens
 ; type, y, x, state, counter  - type 0 means unoccupied slot
-aliens: 
 
+; how many alien slots used (save for faster lookup)
+aliens_spawned: db 0
+
+alien_types_count: db 1 ; testing with 1, should be 3 ; bouncer, hunter, seeker
+
+; alien records
+aliens: 
 alien_0: db 1, 10, 1
 alien_0_sprite: dw 0 ; pointer to sprite, set when spawned
 alien_0_color: db %01000100 ; color of this alien, set when spawned or on update
 alien_0_update: dw 0 ; pointer to update routine, set when spawned
-alien_0_state: db 0, 0 ; state and state counter
+alien_0_state: db 0, 0 ; state bits and state counter
 
 alien_1: db 1, 11, 30
 alien_1_sprite: dw 0
 alien_1_color: db %01000101
 alien_1_update: dw 0
-alien_1_state: db 0, 0 ; state and state counter
-
+alien_1_state: db 0, 0
 
 ; each alien definition (set at start of level)
-; count, max on screen, remaining in this level, spawn interval, spawn interval countdown
-level_hunters: db 0, 0, 0, 0, 0
-level_bouncers: db 0, 0, 0, 0, 0
-level_seekers: db 0, 0, 0, 0, 0
+; count, max on screen, remaining in this level, spawn interval, spawn interval countup
+level_alien_spec:
+level_bouncers: db 0, 0, 0, 25, 0
+dw spawn_bouncer
+level_hunters: db 0, 0, 0, 50, 0
+dw spawn_hunter
+level_seekers: db 0, 0, 0, 150, 0
+dw spawn_seeker
 
 hunter_sprite: db %01011010, %00000000, %01111110, %11011011, %11111111, %01111110, %01000010, %00000000
 bouncer_sprite: db %00000000, %01111110, %11000011, %10011001, %10011001, %11000011, %01111110, %00000000
@@ -449,6 +458,49 @@ ret
 
 
 spawn_aliens:
+; used up all our alien slots?
+ld hl, aliens_spawned
+ld c, (hl)
+ld a, (alien_slots)
+cp c
+ret z ; no slots free, can't spawn
+; see if we need to spawn any aliens by type
+ld hl, alien_types_count ; how many types to check
+ld b, (hl)
+ld hl, level_alien_spec
+spawn_aliens_loop:
+ld a, (hl) ; how many of these 
+inc hl
+ld c, (hl) ; how many max
+cp c
+jp z, spawn_aliens_skip ; reached our limit? nothing to do
+inc hl
+ld c, (hl) ; how many left this round
+cp c
+jp z, spawn_aliens_skip ; reached our limit? nothing to do
+inc hl
+ld c, (hl) ; how many ticks before spawn?
+inc hl
+ld a, (hl) ; how many ticks elapsed?
+cp c
+jp nz, spawn_aliens_skip ; not reached interval ticks?
+ld (hl), a ; reset timer
+inc hl ; inc to pointer to spawn routine
+jp (hl) ; ret from the alien type spawn routine will ret from this
+spawn_aliens_skip:
+inc hl
+dec b ; how many types left to check
+cp b ; done all? or some left
+jp nz, spawn_aliens_loop
+ret
+
+spawn_bouncer:
+ret
+
+spawn_hunter:
+ret
+
+spawn_seeker:
 ret
 
 update_aliens:
