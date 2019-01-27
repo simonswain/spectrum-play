@@ -23,10 +23,10 @@ cls:
    ld a, 4            ;  green.
    call 8859           ; set border colour.
 
-   ld a, $60
+   ld a, $0
    call cls_pixels
 
-   ld a, $44             ; 0 40 0 4  64 bright green
+   ld a, %01000111 ;$44             ; 0 40 0 4  64 bright green
    call cls_attrs
 
    ret
