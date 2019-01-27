@@ -57,8 +57,8 @@ call clear_lasers
 call update_lasers
 call update_player
 call clear_aliens
-; call update_aliens
-; call spawn_aliens
+call update_aliens
+call spawn_aliens
 call draw_aliens
 call draw_lasers
 call draw_player
@@ -379,17 +379,18 @@ alien_slots: equ 2
 ; how many alien slots used (save for faster lookup)
 aliens_spawned: db 0
 
-alien_types_count: db 1 ; testing with 1, should be 3 ; bouncer, hunter, seeker
+alien_types_count: equ 1
+;alien_types_count: db 1 ; testing with 1, should be 3 ; bouncer, hunter, seeker
 
 ; alien records
 aliens: 
-alien_0: db 1, 10, 1
+alien_0: db 0, 4, 8
 alien_0_sprite: dw 0 ; pointer to sprite, set when spawned
 alien_0_color: db %01000100 ; color of this alien, set when spawned or on update
 alien_0_update: dw 0 ; pointer to update routine, set when spawned
 alien_0_state: db 0, 0 ; state bits and state counter
 
-alien_1: db 1, 11, 30
+alien_1: db 0, 4, 30
 alien_1_sprite: dw 0
 alien_1_color: db %01000101
 alien_1_update: dw 0
@@ -398,7 +399,7 @@ alien_1_state: db 0, 0
 ; each alien definition (set at start of level)
 ; count, max on screen, remaining in this level, spawn interval, spawn interval countup
 level_alien_spec:
-level_bouncers: db 0, 0, 0, 25, 0
+level_bouncers: db 0, 0, 0, 0, 0
 dw spawn_bouncer
 level_hunters: db 0, 0, 0, 50, 0
 dw spawn_hunter
@@ -461,19 +462,24 @@ spawn_aliens:
 ; used up all our alien slots?
 ld hl, aliens_spawned
 ld c, (hl)
-ld a, (alien_slots)
+ld a, alien_slots
 cp c
 ret z ; no slots free, can't spawn
 ; see if we need to spawn any aliens by type
-ld hl, alien_types_count ; how many types to check
-ld b, (hl)
+; ld hl, alien_types_count ; how many types to check
+; ld b, (hl)
+ld b, alien_types_count ; how many types to check
 ld hl, level_alien_spec
 spawn_aliens_loop:
-ld a, (hl) ; how many of these 
+push hl ; save address of this spec
+push bc ; save count remaining (in b)
+; first check
+ld a, (hl) ; how many of these currently?
 inc hl
-ld c, (hl) ; how many max
+ld c, (hl) ; how many of these max
 cp c
 jp z, spawn_aliens_skip ; reached our limit? nothing to do
+; next check
 inc hl
 ld c, (hl) ; how many left this round
 cp c
@@ -484,11 +490,41 @@ inc hl
 ld a, (hl) ; how many ticks elapsed?
 cp c
 jp nz, spawn_aliens_skip ; not reached interval ticks?
-ld (hl), a ; reset timer
-inc hl ; inc to pointer to spawn routine
-jp (hl) ; ret from the alien type spawn routine will ret from this
-spawn_aliens_skip:
+; we are going to spawn
+ld (hl), c ; reset timer (c has how many ticks)
+pop hl ; get start of spec record
+; increase count of this type of alien
+ld a, (hl)
+inc a
+ld (hl), a
+; increase count of used slots
+ld hl, aliens_spawned;
+ld a, (hl)
+inc a
+ld (hl), a
+; spawn here
+; should jump to spawn routine
+; dummy test code (should find first free slot and spawn alien there)
+ld hl, alien_0
+ld (hl), 1 ; type 1
 inc hl
+ld (hl), 6 ; y
+;inc hl
+;ld (hl), 20 ; x
+; /dummy test code
+ret
+
+spawn_aliens_skip:
+pop bc ;; b has count of types remaining
+pop hl ;; get start of this spec and skip past it
+inc hl
+inc hl
+inc hl
+inc hl
+inc hl
+inc hl
+inc hl
+
 dec b ; how many types left to check
 cp b ; done all? or some left
 jp nz, spawn_aliens_loop
@@ -504,6 +540,60 @@ spawn_seeker:
 ret
 
 update_aliens:
+ld hl, aliens
+; find active aliens and update
+ld b, alien_slots
+update_aliens_loop:
+ld a, 0
+cp (hl) ; if type zero, alien slot is unused
+jp z, skip_update_alien
+push bc
+push hl
+
+update_alien_y:
+inc hl ; skip type
+; ld a, (hl)
+; dec a
+; ld (hl), a
+; cp 4
+; jp nz, update_alien_x
+; ld a, 20
+; ld (hl), a
+
+update_alien_x:
+inc hl ; skip y
+ld a, (hl)
+dec a
+ld (hl), a
+cp 4
+jp nz, update_alien_next
+ld a, 28
+ld (hl), a
+; update alien here call alien_laser ; hl is pointer to alien slot
+; here should load type, load x, y, get pointers and call update, update
+
+; stub for test
+;call update_alien
+
+update_alien_next:
+pop hl
+pop bc
+; skip over record
+inc hl ; type
+inc hl ; y
+inc hl ; x
+inc hl ; sprite
+inc hl ; sprite
+inc hl ; color
+inc hl ; update
+inc hl ; update
+inc hl ; state
+inc hl ; counter
+
+skip_update_alien:
+dec b ; for all aliens
+ret z ; looked at all slots
+jp update_aliens_loop
 ret
 
 draw_aliens:
